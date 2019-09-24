@@ -1,10 +1,15 @@
 use gtk::prelude::*;
 
 use std::sync::{Arc, Mutex};
+use std::ffi::CString;
+use std::os::raw::c_char;
+use std::slice;
 
 #[link(name="gl_bridge")]
 extern {
-    fn render();
+    fn render(width: i32, height: i32);
+    fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
+    fn init_things();
 }
 
 fn main(){
@@ -12,6 +17,9 @@ fn main(){
         eprintln!("failed to initialize GTK Application");
         return;
     }
+
+    let vert_source = include_str!("vert.glsl");
+    let frag_source = include_str!("frag.glsl");
 
     let state = Arc::new(Mutex::new(State::default()));
 
@@ -35,28 +43,36 @@ fn main(){
     let seed_box: gtk::Box = gui.get_object("SeedBox").unwrap();
     let glarea: gtk::GLArea = gui.get_object("GLArea").unwrap();
 
-    glarea.connect_resize(move |_glarea, _h, _w| {
+    glarea.connect_resize(move |glarea, h, w| {
+        println!("{}x{}", w,h);
+        glarea.make_current();
         unsafe {
-            render();
+            render(w,h);
         }
     });
 
-    glarea.connect_render(move |_glarea, _context| {
+    glarea.connect_render(move |glarea, _context| {
         unsafe {
-            render();
+            render(glarea.get_allocated_width(), glarea.get_allocated_height());
         }
         Inhibit(false)
     });
 
     win.connect_configure_event(move |_, _| {
         unsafe {
-            render();
+            //render();
         }
         false
     });
 
     glarea.connect_realize(move |glarea| {
         glarea.make_current();
+        let c_sh_vert = CString::new(vert_source).unwrap();
+        let c_sh_frag = CString::new(frag_source).unwrap();
+        unsafe {
+            load_shader(c_sh_vert.as_ptr(), c_sh_frag.as_ptr());
+            init_things();
+        }
     });
 
     gen_box.pack_start(&circle_settings, false, false, 0);
@@ -273,4 +289,46 @@ pub enum Generator {
 pub enum Renderer {
     Ogl,
     OglTextured
+}
+
+
+#[no_mangle]
+pub extern "C" fn get_hex_verts(verts: *mut f32) {
+    let verts = unsafe { slice::from_raw_parts_mut(verts, 12)};
+    for i in 0..6 {
+        let coords = get_hex_vertex(&Hex{center_x: 0.0, center_y: 0.0}, i);
+        verts[2 * i] = coords.0;
+        verts[2 * i + 1] = coords.1;
+    }
+}
+
+//TODO DELETE
+/// This is roughly ratio of hexagon height to width
+pub const RATIO: f32 = 1.154_700_538_38;
+
+const HALF_RATIO: f32 = RATIO / 2.0;
+const QUARTER_RATIO: f32 = RATIO / 4.0;
+
+ fn get_hex_vertex(hex: &Hex, index: usize) -> (f32, f32) {
+    if index > 5 {
+        panic!("index out of range")
+    }
+    // get hex relative coords
+    let mut coords = match index {
+        0 => (0.5, -QUARTER_RATIO),
+        1 => (0.5, QUARTER_RATIO),
+        2 => (0.0, HALF_RATIO),
+        3 => (-0.5, QUARTER_RATIO),
+        4 => (-0.5, -QUARTER_RATIO),
+        _ => (0.0, -HALF_RATIO),
+    };
+    // add absolute coords
+    coords.0 += hex.center_x;
+    coords.1 += hex.center_y;
+    (coords.0, coords.1)
+}
+
+struct Hex {
+    center_x: f32,
+    center_y: f32
 }
