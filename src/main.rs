@@ -1,4 +1,5 @@
 use gtk::prelude::*;
+use rand::prelude::*;
 
 use std::sync::{Arc, Mutex};
 use std::ffi::CString;
@@ -299,6 +300,27 @@ pub extern "C" fn get_hex_verts(verts: *mut f32) {
         let coords = get_hex_vertex(&Hex{center_x: 0.0, center_y: 0.0}, i);
         verts[2 * i] = coords.0;
         verts[2 * i + 1] = coords.1;
+    }
+}
+
+//#[repr(C)]
+pub struct InstanceData {
+    offset_x: f32,
+    offset_y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+#[no_mangle]
+pub extern "C" fn get_instance_data(instances: *mut InstanceData) {
+    let instances = unsafe { slice::from_raw_parts_mut(instances, 20)};
+    for (i, hex) in instances.iter_mut().enumerate() {
+        hex.offset_x = rand::random::<f32>() * 2.0 - 1.0;
+        hex.offset_y = rand::random::<f32>() * 2.0 - 1.0;
+        hex.r = rand::random();
+        hex.g = rand::random();
+        hex.b = rand::random();
     }
 }
 
