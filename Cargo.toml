@@ -12,6 +12,7 @@ links = "GL"
 gtk = {version = "0.7.0", default-features = false, features = ["v3_16"]}
 gdk-sys = "0.9.0"
 rand = "0.7"
+enigmap = {path = "../enigmap"}
 
 [build-dependencies]
 cc = "1.0"

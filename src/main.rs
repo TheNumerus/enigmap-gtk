@@ -1,5 +1,8 @@
 use gtk::prelude::*;
-use rand::prelude::*;
+
+use enigmap::renderers::get_hex_vertex;
+use enigmap::{Hex, HexMap};
+use enigmap::renderers::colors::ColorMap;
 
 use std::sync::{Arc, Mutex};
 use std::ffi::CString;
@@ -8,9 +11,11 @@ use std::slice;
 
 #[link(name="gl_bridge")]
 extern {
-    fn render(width: i32, height: i32);
+    fn render(size_x: u32, size_y: u32);
+    fn window_resized(width: i32, height: i32, abs_size_x: f32, abs_size_y: f32);
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
-    fn init_things();
+    fn init_things(len: usize);
+    fn load_instance_data(hex_map: *const Hex, size_x: u32, size_y: u32);
 }
 
 fn main(){
@@ -44,37 +49,58 @@ fn main(){
     let seed_box: gtk::Box = gui.get_object("SeedBox").unwrap();
     let glarea: gtk::GLArea = gui.get_object("GLArea").unwrap();
 
-    glarea.connect_resize(move |glarea, h, w| {
-        println!("{}x{}", w,h);
-        glarea.make_current();
-        unsafe {
-            render(w,h);
-        }
-    });
 
-    glarea.connect_render(move |glarea, _context| {
-        unsafe {
-            render(glarea.get_allocated_width(), glarea.get_allocated_height());
-        }
-        Inhibit(false)
-    });
+    let (size_x, size_y) = {
+        let state = state.lock().unwrap();
+        (state.size_x, state.size_y)
+    };
 
-    win.connect_configure_event(move |_, _| {
+    let map = HexMap::new(size_x, size_y);
+    let (abs_size_x, abs_size_y) = (map.absolute_size_x, map.absolute_size_y);
+
+    {
+        let map_ptr = map.field.as_ptr();
+        glarea.connect_resize(move |glarea, h, w| {
+            //println!("{}x{}", w,h);
+            glarea.make_current();
+            unsafe {
+                window_resized(w, h, abs_size_x, abs_size_y);
+                render(size_x, size_y);
+            }
+        });
+    }
+
+    {
+        let map_ptr = map.field.as_ptr();
+        glarea.connect_render(move |_glarea, _context| {
+            unsafe {
+                render(size_x, size_y);
+            }
+            Inhibit(false)
+        });
+    }
+
+    /*win.connect_configure_event(move |_, _| {
         unsafe {
             //render();
         }
         false
-    });
+    });*/
 
-    glarea.connect_realize(move |glarea| {
-        glarea.make_current();
-        let c_sh_vert = CString::new(vert_source).unwrap();
-        let c_sh_frag = CString::new(frag_source).unwrap();
-        unsafe {
-            load_shader(c_sh_vert.as_ptr(), c_sh_frag.as_ptr());
-            init_things();
-        }
-    });
+    {
+        let map_ptr = map.field.as_ptr();
+        glarea.connect_realize(move |glarea| {
+            glarea.make_current();
+            let c_sh_vert = CString::new(vert_source).unwrap();
+            let c_sh_frag = CString::new(frag_source).unwrap();
+            unsafe {
+                load_shader(c_sh_vert.as_ptr(), c_sh_frag.as_ptr());
+                init_things((size_x * size_y) as usize);
+                load_instance_data(map_ptr, size_x, size_y);
+            }
+        });
+    }
+
 
     gen_box.pack_start(&circle_settings, false, false, 0);
     ren_box.pack_start(&ogl_settings, false, false, 0);
@@ -161,28 +187,40 @@ impl Default for State {
 }
 
 impl State {
-    fn set_size_x(&mut self, new_size: u32) {
+    pub fn set_size_x(&mut self, new_size: u32) {
         self.size_x = new_size;
     }
 
-    fn set_size_y(&mut self, new_size: u32) {
+    pub fn set_size_y(&mut self, new_size: u32) {
         self.size_y = new_size;
     }
 
-    fn set_gen(&mut self, new_gen: Generator) {
+    pub fn set_gen(&mut self, new_gen: Generator) {
         self.gen = new_gen;
     }
 
-    fn set_ren(&mut self, new_ren: Renderer) {
+    pub fn set_ren(&mut self, new_ren: Renderer) {
         self.ren = new_ren;
     }
 
-    fn set_random_seed(&mut self, new_bool: bool) {
+    pub fn set_random_seed(&mut self, new_bool: bool) {
         self.random_seed = new_bool;
     }
 
-    fn set_seed(&mut self, seed: u32) {
+    pub fn set_seed(&mut self, seed: u32) {
         self.seed = seed;
+    }
+
+    pub fn size_x(&self) -> u32 {
+        self.size_x
+    }
+
+    pub fn size_y(&self) -> u32 {
+        self.size_y
+    }
+
+    pub fn seed(&self) -> u32 {
+        self.seed
     }
 }
 
@@ -297,7 +335,7 @@ pub enum Renderer {
 pub extern "C" fn get_hex_verts(verts: *mut f32) {
     let verts = unsafe { slice::from_raw_parts_mut(verts, 12)};
     for i in 0..6 {
-        let coords = get_hex_vertex(&Hex{center_x: 0.0, center_y: 0.0}, i);
+        let coords = get_hex_vertex(&Hex::empty(), i);
         verts[2 * i] = coords.0;
         verts[2 * i + 1] = coords.1;
     }
@@ -313,44 +351,17 @@ pub struct InstanceData {
 }
 
 #[no_mangle]
-pub extern "C" fn get_instance_data(instances: *mut InstanceData) {
-    let instances = unsafe { slice::from_raw_parts_mut(instances, 20)};
+pub extern "C" fn get_instance_data(instances: *mut InstanceData, field_ptr: *const Hex, size_x: u32, size_y: u32) {
+    let size = (size_x * size_y) as usize;
+    let instances = unsafe { slice::from_raw_parts_mut(instances, size)};
+    let field = unsafe {slice::from_raw_parts(field_ptr, size)};
+    let cm = ColorMap::default();
     for (i, hex) in instances.iter_mut().enumerate() {
-        hex.offset_x = rand::random::<f32>() * 2.0 - 1.0;
-        hex.offset_y = rand::random::<f32>() * 2.0 - 1.0;
-        hex.r = rand::random();
-        hex.g = rand::random();
-        hex.b = rand::random();
+        hex.offset_x = field[i].center_x;
+        hex.offset_y = field[i].center_y;
+        let color = cm.get_color_f32(&field[i].terrain_type);
+        hex.r = color.r;
+        hex.g = color.g;
+        hex.b = color.b;
     }
-}
-
-//TODO DELETE
-/// This is roughly ratio of hexagon height to width
-pub const RATIO: f32 = 1.154_700_538_38;
-
-const HALF_RATIO: f32 = RATIO / 2.0;
-const QUARTER_RATIO: f32 = RATIO / 4.0;
-
- fn get_hex_vertex(hex: &Hex, index: usize) -> (f32, f32) {
-    if index > 5 {
-        panic!("index out of range")
-    }
-    // get hex relative coords
-    let mut coords = match index {
-        0 => (0.5, -QUARTER_RATIO),
-        1 => (0.5, QUARTER_RATIO),
-        2 => (0.0, HALF_RATIO),
-        3 => (-0.5, QUARTER_RATIO),
-        4 => (-0.5, -QUARTER_RATIO),
-        _ => (0.0, -HALF_RATIO),
-    };
-    // add absolute coords
-    coords.0 += hex.center_x;
-    coords.1 += hex.center_y;
-    (coords.0, coords.1)
-}
-
-struct Hex {
-    center_x: f32,
-    center_y: f32
 }
