@@ -9,7 +9,7 @@ extern void get_instance_data(float* instances);
 
 char * vert_shader_source;
 char * frag_shader_source;
-unsigned int vao, vbo, ebo, vbo_instances;
+unsigned int vao, vbo, ebo, vbo_instances, ratio_uniform;
 
 float verts[12];
 
@@ -23,6 +23,8 @@ void render(int width, int height) {
     glClear(GL_COLOR_BUFFER_BIT);
     glClear(GL_DEPTH_BUFFER_BIT);
     glClearColor(0.1, 0.1, 0.1, 1.0);
+
+    glUniform1f(ratio_uniform, (float)width / (float)height);
     
     glBindVertexArray(vao);
     glDrawElementsInstanced(GL_TRIANGLE_STRIP, 6, GL_UNSIGNED_INT, 0, 20);
@@ -95,6 +97,8 @@ void init_things() {
     glLinkProgram(shaderProgram);
 
     glUseProgram(shaderProgram);
+
+    ratio_uniform = glGetUniformLocation(shaderProgram, "aspect_ratio");
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glEnableVertexAttribArray(0);
