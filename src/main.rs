@@ -16,6 +16,7 @@ extern {
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
     fn init_things(len: usize);
     fn load_instance_data(hex_map: *const Hex, size_x: u32, size_y: u32);
+    fn cleanup();
 }
 
 fn main(){
@@ -58,34 +59,20 @@ fn main(){
     let map = HexMap::new(size_x, size_y);
     let (abs_size_x, abs_size_y) = (map.absolute_size_x, map.absolute_size_y);
 
-    {
-        let map_ptr = map.field.as_ptr();
-        glarea.connect_resize(move |glarea, h, w| {
-            //println!("{}x{}", w,h);
-            glarea.make_current();
-            unsafe {
-                window_resized(w, h, abs_size_x, abs_size_y);
-                render(size_x, size_y);
-            }
-        });
-    }
-
-    {
-        let map_ptr = map.field.as_ptr();
-        glarea.connect_render(move |_glarea, _context| {
-            unsafe {
-                render(size_x, size_y);
-            }
-            Inhibit(false)
-        });
-    }
-
-    /*win.connect_configure_event(move |_, _| {
+    glarea.connect_resize(move |glarea, h, w| {
+        glarea.make_current();
         unsafe {
-            //render();
+            window_resized(w, h, abs_size_x, abs_size_y);
+            render(size_x, size_y);
         }
-        false
-    });*/
+    });
+
+    glarea.connect_render(move |_glarea, _context| {
+        unsafe {
+            render(size_x, size_y);
+        }
+        Inhibit(false)
+    });
 
     {
         let map_ptr = map.field.as_ptr();
@@ -101,6 +88,11 @@ fn main(){
         });
     }
 
+    glarea.connect_unrealize(move |_glarea| {
+        unsafe {
+            cleanup();
+        }
+    });
 
     gen_box.pack_start(&circle_settings, false, false, 0);
     ren_box.pack_start(&ogl_settings, false, false, 0);
