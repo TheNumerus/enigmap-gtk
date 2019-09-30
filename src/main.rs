@@ -1,8 +1,10 @@
 use gtk::prelude::*;
 
 use enigmap::renderers::get_hex_vertex;
-use enigmap::{Hex, HexMap};
+use enigmap::{Hex, HexMap, HexType};
 use enigmap::renderers::colors::ColorMap;
+use enigmap::generators::Circle;
+use enigmap::prelude::*;
 
 use std::sync::{Arc, Mutex};
 use std::ffi::CString;
@@ -16,6 +18,7 @@ extern {
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
     fn init_things(len: usize);
     fn load_instance_data(hex_map: *const Hex, size_x: u32, size_y: u32);
+    fn map_resized(abs_size_x: f32, abs_size_y: f32);
     fn cleanup();
 }
 
@@ -56,26 +59,48 @@ fn main(){
         (state.size_x, state.size_y)
     };
 
-    let map = HexMap::new(size_x, size_y);
+    let mut map = HexMap::new(size_x, size_y);
+
+    let gen = Circle::new_optimized(&map);
+    gen.generate(&mut map);
     let (abs_size_x, abs_size_y) = (map.absolute_size_x, map.absolute_size_y);
 
-    glarea.connect_resize(move |glarea, h, w| {
-        glarea.make_current();
-        unsafe {
-            window_resized(w, h, abs_size_x, abs_size_y);
-            render(size_x, size_y);
-        }
-    });
-
-    glarea.connect_render(move |_glarea, _context| {
-        unsafe {
-            render(size_x, size_y);
-        }
-        Inhibit(false)
-    });
+    state.lock().unwrap().map = map;
 
     {
-        let map_ptr = map.field.as_ptr();
+        let state = Arc::clone(&state);
+        glarea.connect_resize(move |glarea, h, w| {
+            //glarea.make_current();
+            let (size_x, size_y, abs_size_x, abs_size_y) = {
+                let state = state.lock().unwrap();
+                (state.size_x, state.size_y, state.map.absolute_size_x, state.map.absolute_size_y)
+            };
+            unsafe {
+                window_resized(w, h, abs_size_x, abs_size_y);
+            }
+        });
+    }
+
+    {
+        let state = Arc::clone(&state);
+        glarea.connect_render(move |_glarea, _context| {
+            _glarea.make_current();
+            let (size_x, size_y, abs_size_x, abs_size_y) = {
+                let state = state.lock().unwrap();
+                (state.size_x, state.size_y, state.map.absolute_size_x, state.map.absolute_size_y)
+            };
+            unsafe {
+                map_resized(abs_size_x, abs_size_y);
+                render(size_x, size_y);
+            }
+            Inhibit(false)
+        });
+    }
+
+
+    {
+        let map_ptr = state.lock().unwrap().map.field.as_ptr();
+        let state = Arc::clone(&state);
         glarea.connect_realize(move |glarea| {
             glarea.make_current();
             let c_sh_vert = CString::new(vert_source).unwrap();
@@ -112,12 +137,34 @@ fn main(){
     {
         let size_x: gtk::Adjustment = gui.get_object("SizeX").unwrap();
         let state = Arc::clone(&state);
-        size_x.connect_value_changed(move |size| size_x_changed(size, &state));
+        let state_move = Arc::clone(&state);
+        let widgets = Arc::clone(&widgets);
+        size_x.connect_value_changed(move |size| {
+            size_x_changed(size, &state_move);
+            let lock = state.lock().unwrap();
+            let map_ptr = lock.map.field.as_ptr();
+            let size_x = lock.size_x;
+            let size_y = lock.size_y;
+            unsafe {
+                load_instance_data(map_ptr, size_x, size_y);
+                //map_resized(lock.map.absolute_size_x, lock.map.absolute_size_y);
+                widgets.lock().unwrap().glarea_queue_render();
+                //render(size_x, size_y);
+            }
+        });
     }
     {
         let size_y: gtk::Adjustment = gui.get_object("SizeY").unwrap();
         let state = Arc::clone(&state);
-        size_y.connect_value_changed(move |size| size_y_changed(size, &state));
+        let state_move = Arc::clone(&state);
+        size_y.connect_value_changed(move |size| size_y_changed(size, &state_move));
+        let lock = state.lock().unwrap();
+        let map_ptr = lock.map.field.as_ptr();
+        let size_x = lock.size_x;
+        let size_y = lock.size_y;
+        unsafe {
+            //load_instance_data(map_ptr, size_x, size_y);
+        }
     }
     {
         let seed: gtk::Adjustment = gui.get_object("Seed").unwrap();
@@ -162,19 +209,30 @@ pub struct Widgets {
     pub glarea: gtk::GLArea,
 }
 
-#[derive(Debug, Copy, Clone)]
+impl Widgets {
+    pub fn glarea_make_current(&self) {
+        self.glarea.make_current();
+    }
+
+    pub fn glarea_queue_render(&self) {
+        self.glarea.queue_render();
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct State {
     size_x: u32,
     size_y: u32,
     random_seed: bool,
     seed: u32,
     gen: Generator,
-    ren: Renderer
+    ren: Renderer,
+    map: HexMap
 }
 
 impl Default for State {
     fn default() -> Self {
-        State{size_x: 100, size_y: 75, gen: Generator::Circle, ren: Renderer::Ogl, random_seed: true, seed: 0}
+        State{size_x: 100, size_y: 75, gen: Generator::Circle, ren: Renderer::Ogl, random_seed: true, seed: 0, map: HexMap::new(100, 75)}
     }
 }
 
@@ -218,7 +276,10 @@ impl State {
 
 fn size_x_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
     let size: u32 = size.get_value() as u32;
-    state.lock().unwrap().set_size_x(size);
+    let mut lock = state.lock().unwrap();
+    let size_y = lock.size_y;
+    lock.map.remap(size, size_y, HexType::Water);
+    lock.set_size_x(size);
 }
 
 fn size_y_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {

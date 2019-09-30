@@ -83,6 +83,11 @@ void window_resized(int32_t width, int32_t height, float abs_size_x, float abs_s
     glUniform1f(uniform_size_y, abs_size_y);
 }
 
+void map_resized(float abs_size_x, float abs_size_y) {
+    glUniform1f(uniform_size_x, abs_size_x);
+    glUniform1f(uniform_size_y, abs_size_y);
+}
+
 void load_instance_data(void* map, uint32_t x, uint32_t y) {
     get_instance_data(instances, map, x, y);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);
@@ -148,4 +153,3 @@ void init_things(uint64_t len) {
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
     glVertexAttribDivisor(2, 1);
 }
-
