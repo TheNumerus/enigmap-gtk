@@ -25,6 +25,7 @@ uint32_t vao, vbo, ebo, vbo_instances, ratio_uniform, uniform_size_x, uniform_si
 float verts[12];
 
 float * instances;
+uint32_t instances_len;
 
 // INTERNAL FUNCTIONS
 void generate_program() {
@@ -89,6 +90,11 @@ void map_resized(float abs_size_x, float abs_size_y) {
 }
 
 void load_instance_data(void* map, uint32_t x, uint32_t y) {
+    if (x * y > instances_len) {
+        free(instances);
+        instances = malloc(x * y * sizeof(float) * 5);
+        instances_len = x * y;
+    }
     get_instance_data(instances, map, x, y);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 5 * x * y, instances, GL_STATIC_DRAW);
@@ -126,9 +132,9 @@ void init_things(uint64_t len) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-
     // upload instance data
     instances = malloc(len * sizeof(float) * 5);
+    instances_len = len;
 
     glBindVertexArray(vbo_instances);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);

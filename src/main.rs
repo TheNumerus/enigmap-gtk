@@ -17,6 +17,7 @@ extern {
     fn window_resized(width: i32, height: i32, abs_size_x: f32, abs_size_y: f32);
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
     fn init_things(len: usize);
+    #[allow(improper_ctypes)]
     fn load_instance_data(hex_map: *const Hex, size_x: u32, size_y: u32);
     fn map_resized(abs_size_x: f32, abs_size_y: f32);
     fn cleanup();
@@ -63,17 +64,15 @@ fn main(){
 
     let gen = Circle::new_optimized(&map);
     gen.generate(&mut map);
-    let (abs_size_x, abs_size_y) = (map.absolute_size_x, map.absolute_size_y);
 
     state.lock().unwrap().map = map;
 
     {
         let state = Arc::clone(&state);
-        glarea.connect_resize(move |glarea, h, w| {
-            //glarea.make_current();
-            let (size_x, size_y, abs_size_x, abs_size_y) = {
+        glarea.connect_resize(move |_glarea, h, w| {
+            let (abs_size_x, abs_size_y) = {
                 let state = state.lock().unwrap();
-                (state.size_x, state.size_y, state.map.absolute_size_x, state.map.absolute_size_y)
+                (state.map.absolute_size_x, state.map.absolute_size_y)
             };
             unsafe {
                 window_resized(w, h, abs_size_x, abs_size_y);
@@ -100,7 +99,6 @@ fn main(){
 
     {
         let map_ptr = state.lock().unwrap().map.field.as_ptr();
-        let state = Arc::clone(&state);
         glarea.connect_realize(move |glarea| {
             glarea.make_current();
             let c_sh_vert = CString::new(vert_source).unwrap();
@@ -147,9 +145,7 @@ fn main(){
             let size_y = lock.size_y;
             unsafe {
                 load_instance_data(map_ptr, size_x, size_y);
-                //map_resized(lock.map.absolute_size_x, lock.map.absolute_size_y);
-                widgets.lock().unwrap().glarea_queue_render();
-                //render(size_x, size_y);
+                widgets.lock().unwrap().glarea.queue_render();
             }
         });
     }
@@ -157,14 +153,18 @@ fn main(){
         let size_y: gtk::Adjustment = gui.get_object("SizeY").unwrap();
         let state = Arc::clone(&state);
         let state_move = Arc::clone(&state);
-        size_y.connect_value_changed(move |size| size_y_changed(size, &state_move));
-        let lock = state.lock().unwrap();
-        let map_ptr = lock.map.field.as_ptr();
-        let size_x = lock.size_x;
-        let size_y = lock.size_y;
-        unsafe {
-            //load_instance_data(map_ptr, size_x, size_y);
-        }
+        let widgets = Arc::clone(&widgets);
+        size_y.connect_value_changed(move |size| {
+            size_y_changed(size, &state_move);
+            let lock = state.lock().unwrap();
+            let map_ptr = lock.map.field.as_ptr();
+            let size_x = lock.size_x;
+            let size_y = lock.size_y;
+            unsafe {
+                load_instance_data(map_ptr, size_x, size_y);
+                widgets.lock().unwrap().glarea.queue_render();
+            }
+        });
     }
     {
         let seed: gtk::Adjustment = gui.get_object("Seed").unwrap();
@@ -209,24 +209,14 @@ pub struct Widgets {
     pub glarea: gtk::GLArea,
 }
 
-impl Widgets {
-    pub fn glarea_make_current(&self) {
-        self.glarea.make_current();
-    }
-
-    pub fn glarea_queue_render(&self) {
-        self.glarea.queue_render();
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct State {
-    size_x: u32,
-    size_y: u32,
-    random_seed: bool,
-    seed: u32,
-    gen: Generator,
-    ren: Renderer,
+    pub size_x: u32,
+    pub size_y: u32,
+    pub random_seed: bool,
+    pub seed: u32,
+    pub gen: Generator,
+    pub ren: Renderer,
     map: HexMap
 }
 
@@ -236,60 +226,25 @@ impl Default for State {
     }
 }
 
-impl State {
-    pub fn set_size_x(&mut self, new_size: u32) {
-        self.size_x = new_size;
-    }
-
-    pub fn set_size_y(&mut self, new_size: u32) {
-        self.size_y = new_size;
-    }
-
-    pub fn set_gen(&mut self, new_gen: Generator) {
-        self.gen = new_gen;
-    }
-
-    pub fn set_ren(&mut self, new_ren: Renderer) {
-        self.ren = new_ren;
-    }
-
-    pub fn set_random_seed(&mut self, new_bool: bool) {
-        self.random_seed = new_bool;
-    }
-
-    pub fn set_seed(&mut self, seed: u32) {
-        self.seed = seed;
-    }
-
-    pub fn size_x(&self) -> u32 {
-        self.size_x
-    }
-
-    pub fn size_y(&self) -> u32 {
-        self.size_y
-    }
-
-    pub fn seed(&self) -> u32 {
-        self.seed
-    }
-}
-
 fn size_x_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
     let size: u32 = size.get_value() as u32;
     let mut lock = state.lock().unwrap();
     let size_y = lock.size_y;
     lock.map.remap(size, size_y, HexType::Water);
-    lock.set_size_x(size);
+    lock.size_x = size;
 }
 
 fn size_y_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
     let size: u32 = size.get_value() as u32;
-    state.lock().unwrap().set_size_y(size);
+    let mut lock = state.lock().unwrap();
+    let size_x = lock.size_x;
+    lock.map.remap(size_x, size, HexType::Water);
+    lock.size_y = size;
 }
 
 fn seed_changed(seed: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
     let seed: u32 = seed.get_value() as u32;
-    state.lock().unwrap().set_seed(seed);
+    state.lock().unwrap().seed = seed;
 }
 
 fn generator_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
@@ -305,7 +260,7 @@ fn generator_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, w
     };
 
     {
-        state.lock().unwrap().set_gen(choice);
+        state.lock().unwrap().gen = choice;
         push_state_message(state, widgets);
     }
 
@@ -335,7 +290,7 @@ fn renderer_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, wi
     };
 
     {
-        state.lock().unwrap().set_ren(choice);
+        state.lock().unwrap().ren = choice;
         push_state_message(state, widgets);
     }
 
@@ -353,7 +308,7 @@ fn renderer_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, wi
 }
 
 fn random_switch_changed(switch_state: bool, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) -> bool {
-    state.lock().unwrap().set_random_seed(switch_state);
+    state.lock().unwrap().random_seed = switch_state;
     let seed_box = &widgets.lock().unwrap().seed_box;
     seed_box.set_sensitive(!switch_state);
     if switch_state {
