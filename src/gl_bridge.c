@@ -78,10 +78,8 @@ void render(uint32_t x, uint32_t y) {
     glDrawElementsInstanced(GL_TRIANGLE_STRIP, 6, GL_UNSIGNED_INT, 0, x * y);
 }
 
-void window_resized(int32_t width, int32_t height, float abs_size_x, float abs_size_y) {
+void window_resized(int32_t width, int32_t height) {
     glUniform1f(ratio_uniform, (float)width / (float)height);
-    glUniform1f(uniform_size_x, abs_size_x);
-    glUniform1f(uniform_size_y, abs_size_y);
 }
 
 void map_resized(float abs_size_x, float abs_size_y) {
@@ -89,15 +87,9 @@ void map_resized(float abs_size_x, float abs_size_y) {
     glUniform1f(uniform_size_y, abs_size_y);
 }
 
-void load_instance_data(void* map, uint32_t x, uint32_t y) {
-    if (x * y > instances_len) {
-        free(instances);
-        instances = malloc(x * y * sizeof(float) * 5);
-        instances_len = x * y;
-    }
-    get_instance_data(instances, map, x, y);
+void load_instance_data(void* data, uint32_t len) {
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 5 * x * y, instances, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 5 * len, data, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 

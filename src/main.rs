@@ -14,11 +14,10 @@ use std::slice;
 #[link(name="gl_bridge")]
 extern {
     fn render(size_x: u32, size_y: u32);
-    fn window_resized(width: i32, height: i32, abs_size_x: f32, abs_size_y: f32);
+    fn window_resized(width: i32, height: i32);
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
     fn init_things(len: usize);
-    #[allow(improper_ctypes)]
-    fn load_instance_data(hex_map: *const Hex, size_x: u32, size_y: u32);
+    fn load_instance_data(data: *const InstanceData, len: u32);
     fn map_resized(abs_size_x: f32, abs_size_y: f32);
     fn cleanup();
 }
@@ -67,18 +66,11 @@ fn main(){
 
     state.lock().unwrap().map = map;
 
-    {
-        let state = Arc::clone(&state);
-        glarea.connect_resize(move |_glarea, h, w| {
-            let (abs_size_x, abs_size_y) = {
-                let state = state.lock().unwrap();
-                (state.map.absolute_size_x, state.map.absolute_size_y)
-            };
-            unsafe {
-                window_resized(w, h, abs_size_x, abs_size_y);
-            }
-        });
-    }
+    glarea.connect_resize(move |_glarea, w, h| {
+        unsafe {
+            window_resized(w, h);
+        }
+    });
 
     {
         let state = Arc::clone(&state);
@@ -98,15 +90,17 @@ fn main(){
 
 
     {
-        let map_ptr = state.lock().unwrap().map.field.as_ptr();
+        let state = Arc::clone(&state);
         glarea.connect_realize(move |glarea| {
+            let lock = state.lock().unwrap();
             glarea.make_current();
             let c_sh_vert = CString::new(vert_source).unwrap();
             let c_sh_frag = CString::new(frag_source).unwrap();
+            let instance_data = get_instance_data(&lock.map, &lock.color_map);
             unsafe {
                 load_shader(c_sh_vert.as_ptr(), c_sh_frag.as_ptr());
                 init_things((size_x * size_y) as usize);
-                load_instance_data(map_ptr, size_x, size_y);
+                load_instance_data(instance_data.as_ptr(), instance_data.len() as u32);
             }
         });
     }
@@ -140,11 +134,9 @@ fn main(){
         size_x.connect_value_changed(move |size| {
             size_x_changed(size, &state_move);
             let lock = state.lock().unwrap();
-            let map_ptr = lock.map.field.as_ptr();
-            let size_x = lock.size_x;
-            let size_y = lock.size_y;
+            let inst_data = get_instance_data(&lock.map, &lock.color_map);
             unsafe {
-                load_instance_data(map_ptr, size_x, size_y);
+                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
                 widgets.lock().unwrap().glarea.queue_render();
             }
         });
@@ -157,11 +149,9 @@ fn main(){
         size_y.connect_value_changed(move |size| {
             size_y_changed(size, &state_move);
             let lock = state.lock().unwrap();
-            let map_ptr = lock.map.field.as_ptr();
-            let size_x = lock.size_x;
-            let size_y = lock.size_y;
+            let inst_data = get_instance_data(&lock.map, &lock.color_map);
             unsafe {
-                load_instance_data(map_ptr, size_x, size_y);
+                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
                 widgets.lock().unwrap().glarea.queue_render();
             }
         });
@@ -217,12 +207,22 @@ pub struct State {
     pub seed: u32,
     pub gen: Generator,
     pub ren: Renderer,
-    map: HexMap
+    pub map: HexMap,
+    pub color_map: ColorMap
 }
 
 impl Default for State {
     fn default() -> Self {
-        State{size_x: 100, size_y: 75, gen: Generator::Circle, ren: Renderer::Ogl, random_seed: true, seed: 0, map: HexMap::new(100, 75)}
+        State {
+            size_x: 100,
+            size_y: 75,
+            gen: Generator::Circle,
+            ren: Renderer::Ogl,
+            random_seed: true,
+            seed: 0,
+            map: HexMap::new(100, 75),
+            color_map: ColorMap::default()
+        }
     }
 }
 
@@ -349,7 +349,7 @@ pub extern "C" fn get_hex_verts(verts: *mut f32) {
     }
 }
 
-//#[repr(C)]
+#[repr(C)]
 pub struct InstanceData {
     offset_x: f32,
     offset_y: f32,
@@ -358,18 +358,18 @@ pub struct InstanceData {
     b: f32,
 }
 
-#[no_mangle]
-pub extern "C" fn get_instance_data(instances: *mut InstanceData, field_ptr: *const Hex, size_x: u32, size_y: u32) {
-    let size = (size_x * size_y) as usize;
-    let instances = unsafe { slice::from_raw_parts_mut(instances, size)};
-    let field = unsafe {slice::from_raw_parts(field_ptr, size)};
-    let cm = ColorMap::default();
-    for (i, hex) in instances.iter_mut().enumerate() {
-        hex.offset_x = field[i].center_x;
-        hex.offset_y = field[i].center_y;
-        let color = cm.get_color_f32(&field[i].terrain_type);
-        hex.r = color.r;
-        hex.g = color.g;
-        hex.b = color.b;
+pub fn get_instance_data(map: &HexMap, colors: &ColorMap) -> Vec<InstanceData> {
+    let size = map.get_area() as usize;
+    let mut instances = Vec::with_capacity(size);
+    for i in 0..size {
+        let color = colors.get_color_f32(&map.field[i].terrain_type);
+        instances.push(InstanceData{
+            offset_x: map.field[i].center_x,
+            offset_y: map.field[i].center_y,
+            r: color.r,
+            g: color.g,
+            b: color.b
+        });
     }
+    instances
 }
