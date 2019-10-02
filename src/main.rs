@@ -3,8 +3,7 @@ use gtk::prelude::*;
 use enigmap::renderers::get_hex_vertex;
 use enigmap::{Hex, HexMap, HexType};
 use enigmap::renderers::colors::ColorMap;
-use enigmap::generators::Circle;
-use enigmap::prelude::*;
+use enigmap::generators::*;
 
 use std::sync::{Arc, Mutex};
 use std::ffi::CString;
@@ -61,7 +60,7 @@ fn main(){
 
     let mut map = HexMap::new(size_x, size_y);
 
-    let gen = Circle::new_optimized(&map);
+    let gen = Circle::default();
     gen.generate(&mut map);
 
     state.lock().unwrap().map = map;
@@ -126,41 +125,32 @@ fn main(){
         glarea
     }));
 
-    {
-        let size_x: gtk::Adjustment = gui.get_object("SizeX").unwrap();
-        let state = Arc::clone(&state);
-        let state_move = Arc::clone(&state);
-        let widgets = Arc::clone(&widgets);
-        size_x.connect_value_changed(move |size| {
-            size_x_changed(size, &state_move);
-            let lock = state.lock().unwrap();
-            let inst_data = get_instance_data(&lock.map, &lock.color_map);
-            unsafe {
-                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
-                widgets.lock().unwrap().glarea.queue_render();
-            }
-        });
-    }
-    {
-        let size_y: gtk::Adjustment = gui.get_object("SizeY").unwrap();
-        let state = Arc::clone(&state);
-        let state_move = Arc::clone(&state);
-        let widgets = Arc::clone(&widgets);
-        size_y.connect_value_changed(move |size| {
-            size_y_changed(size, &state_move);
-            let lock = state.lock().unwrap();
-            let inst_data = get_instance_data(&lock.map, &lock.color_map);
-            unsafe {
-                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
-                widgets.lock().unwrap().glarea.queue_render();
-            }
-        });
-    }
-    {
-        let seed: gtk::Adjustment = gui.get_object("Seed").unwrap();
-        let state = Arc::clone(&state);
-        seed.connect_value_changed(move |seed| seed_changed(seed, &state));
-    }
+    adjustnemt_update("SizeX", &state, &widgets, &gui, |value, state| {
+        let size: u32 = value.get_value() as u32;
+        let mut lock = state.lock().unwrap();
+        let size_y = lock.size_y;
+        lock.map.remap(size, size_y, HexType::Water);
+        lock.size_x = size;
+    });
+
+    adjustnemt_update("SizeY", &state, &widgets, &gui, |value, state| {
+        let size: u32 = value.get_value() as u32;
+        let mut lock = state.lock().unwrap();
+        let size_x = lock.size_x;
+        lock.map.remap(size_x, size, HexType::Water);
+        lock.size_y = size;
+    });
+
+    adjustnemt_update("Seed", &state, &widgets, &gui, |value, state| {
+        let seed: u32 = value.get_value() as u32;
+        state.lock().unwrap().seed = seed;
+        match &mut state.lock().unwrap().gen {
+            Generator::Circle(gen) => gen.set_seed(seed),
+            Generator::Island(gen) => gen.set_seed(seed),
+            Generator::Inland(gen) => gen.set_seed(seed)
+        }
+    });
+
     {
         let generator_setting: gtk::ComboBoxText = gui.get_object("GeneratorSetting").unwrap();
         let state = Arc::clone(&state);
@@ -177,13 +167,112 @@ fn main(){
         let random_seed: gtk::Switch = gui.get_object("RandomSeed").unwrap();
         let state = Arc::clone(&state);
         let widgets = Arc::clone(&widgets);
-        random_seed.connect_state_set(move |_, switch_state| gtk::Inhibit(random_switch_changed(switch_state, &state, &widgets)));
+        random_seed.connect_state_set(move |_, switch_state| {
+            random_switch_changed(switch_state, &state, &widgets);
+            regenerate_map(&state);
+            let lock = state.lock().unwrap();
+            let inst_data = get_instance_data(&lock.map, &lock.color_map);
+            unsafe {
+                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
+            }
+            widgets.lock().unwrap().glarea.queue_render();
+            gtk::Inhibit(false)
+        });
     }
+
+    connect_circle_vars(&gui, &state, &widgets);
 
     // Don't forget to make all widgets visible.
     win.show_all();
 
     gtk::main();
+}
+
+fn adjustnemt_update<T: 'static>(name: &str, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>, gui: &gtk::Builder, on_change: T)
+    where T: Fn(&gtk::Adjustment, &Arc<Mutex<State>>)
+{
+    let adj: gtk::Adjustment = gui.get_object(name).unwrap();
+    let state = Arc::clone(&state);
+    let widgets = Arc::clone(&widgets);
+    adj.connect_value_changed(move |value| {
+        on_change(value, &state);
+        regenerate_map(&state);
+        let lock = state.lock().unwrap();
+        let inst_data = get_instance_data(&lock.map, &lock.color_map);
+        unsafe {
+            load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
+        }
+        widgets.lock().unwrap().glarea.queue_render();
+    });
+}
+
+fn connect_circle_vars(gui: &gtk::Builder, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
+    adjustnemt_update("Circle_RingSize", state, widgets, gui, |value, state| {
+        let ring = value.get_value() as f32;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.ring_size = ring;
+        }
+    });
+
+    adjustnemt_update("Circle_Ice", state, widgets, gui, |value, state| {
+        let falloff = value.get_value() as f32;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.ice_falloff = falloff;
+        }
+    });
+
+    adjustnemt_update("Circle_Percentage", state, widgets, gui, |value, state| {
+        let percentage = value.get_value() as f32 / 100.0;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.mountain_percentage = percentage;
+        }
+    });
+
+    adjustnemt_update("Circle_Ocean", state, widgets, gui, |value, state| {
+        let dist = value.get_value() as u32;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.ocean_distance = dist;
+        }
+    });
+
+    adjustnemt_update("Circle_Noise", state, widgets, gui, |value, state| {
+        let noise = value.get_value() as f64;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.noise_scale = noise;
+        }
+    });
+
+    adjustnemt_update("Circle_LandJitter", state, widgets, gui, |value, state| {
+        let jitter = value.get_value() as f32;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.land_jitter = jitter;
+        }
+    });
+
+    adjustnemt_update("Circle_Stickiness", state, widgets, gui, |value, state| {
+        let stickiness = value.get_value() as u32;
+        let mut lock = state.lock().unwrap();
+        if let Generator::Circle(gen) = &mut lock.gen {
+            gen.mountain_stickiness = stickiness;
+        }
+    });
+}
+
+fn regenerate_map(state: &Arc<Mutex<State>>) {
+    // need to clone so we dont cause deadlock
+    let mut map_clone = state.lock().unwrap().map.clone();
+    match state.lock().unwrap().gen {
+        Generator::Circle(gen) => gen.generate(&mut map_clone),
+        Generator::Island(gen) => gen.generate(&mut map_clone),
+        Generator::Inland(gen) => gen.generate(&mut map_clone)
+    }
+    state.lock().unwrap().map = map_clone;
 }
 
 pub struct Widgets {
@@ -216,7 +305,7 @@ impl Default for State {
         State {
             size_x: 100,
             size_y: 75,
-            gen: Generator::Circle,
+            gen: Generator::Circle(Circle::default()),
             ren: Renderer::Ogl,
             random_seed: true,
             seed: 0,
@@ -226,36 +315,15 @@ impl Default for State {
     }
 }
 
-fn size_x_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
-    let size: u32 = size.get_value() as u32;
-    let mut lock = state.lock().unwrap();
-    let size_y = lock.size_y;
-    lock.map.remap(size, size_y, HexType::Water);
-    lock.size_x = size;
-}
-
-fn size_y_changed(size: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
-    let size: u32 = size.get_value() as u32;
-    let mut lock = state.lock().unwrap();
-    let size_x = lock.size_x;
-    lock.map.remap(size_x, size, HexType::Water);
-    lock.size_y = size;
-}
-
-fn seed_changed(seed: &gtk::Adjustment, state: &Arc<Mutex<State>>) {
-    let seed: u32 = seed.get_value() as u32;
-    state.lock().unwrap().seed = seed;
-}
-
 fn generator_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
     let str_choice = combo_box.get_active_text().unwrap();
     
     let choice = str_choice.as_str();
 
     let choice = match choice {
-        "Circular" => Generator::Circle,
-        "Islands" => Generator::Island,
-        "Inland" => Generator::Inland,
+        "Circular" => Generator::Circle(Circle::default()),
+        "Islands" => Generator::Island(Islands::default()),
+        "Inland" => Generator::Inland(Inland::default()),
         _ => panic!("invalid choice of generator")
     };
 
@@ -271,9 +339,9 @@ fn generator_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, w
         gen_box.foreach(|child| gen_box.remove(child));
 
         match choice {
-            Generator::Circle => gen_box.pack_start(&widgets.circle_settings, false, false, 0),
-            Generator::Island => gen_box.pack_start(&widgets.island_settings, false, false, 0),
-            Generator::Inland => gen_box.pack_start(&widgets.inland_settings, false, false, 0),
+            Generator::Circle(_) => gen_box.pack_start(&widgets.circle_settings, false, false, 0),
+            Generator::Island(_) => gen_box.pack_start(&widgets.island_settings, false, false, 0),
+            Generator::Inland(_) => gen_box.pack_start(&widgets.inland_settings, false, false, 0),
         }
     }
 }
@@ -307,8 +375,22 @@ fn renderer_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, wi
     }
 }
 
-fn random_switch_changed(switch_state: bool, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) -> bool {
+fn random_switch_changed(switch_state: bool, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
     state.lock().unwrap().random_seed = switch_state;
+    if switch_state {
+        match &mut state.lock().unwrap().gen {
+            Generator::Circle(gen) => gen.reset_seed(),
+            Generator::Island(gen) => gen.reset_seed(),
+            Generator::Inland(gen) => gen.reset_seed()
+        }
+    } else {
+        let seed = state.lock().unwrap().seed;
+        match &mut state.lock().unwrap().gen {
+            Generator::Circle(gen) => gen.set_seed(seed),
+            Generator::Island(gen) => gen.set_seed(seed),
+            Generator::Inland(gen) => gen.set_seed(seed)
+        }
+    }
     let seed_box = &widgets.lock().unwrap().seed_box;
     seed_box.set_sensitive(!switch_state);
     if switch_state {
@@ -316,7 +398,6 @@ fn random_switch_changed(switch_state: bool, state: &Arc<Mutex<State>>, widgets:
     } else {
         seed_box.set_opacity(1.0);
     }
-    false
 }
 
 fn push_state_message(state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
@@ -327,9 +408,9 @@ fn push_state_message(state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) 
 
 #[derive(Debug, Copy, Clone)]
 pub enum Generator {
-    Circle,
-    Island,
-    Inland
+    Circle(enigmap::generators::Circle),
+    Island(enigmap::generators::Islands),
+    Inland(enigmap::generators::Inland)
 }
 
 #[derive(Debug, Copy, Clone)]
