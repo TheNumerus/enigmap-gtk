@@ -1,5 +1,5 @@
 [package]
-name = "gtk_test"
+name = "enigmap-gtk"
 version = "0.1.0"
 authors = ["Petr Volf <petr.volf216@gmail.com>"]
 edition = "2018"
@@ -10,6 +10,7 @@ links = "GL"
 
 [dependencies]
 gtk = {version = "0.7.0", default-features = false, features = ["v3_16"]}
+gdk = "0.11"
 gdk-sys = "0.9.0"
 rand = "0.7"
 enigmap = {path = "../enigmap"}

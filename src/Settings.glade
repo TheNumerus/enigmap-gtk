@@ -505,7 +505,8 @@
     <property name="name">SettingsBox</property>
     <property name="width_request">350</property>
     <property name="visible">True</property>
-    <property name="can_focus">False</property>
+    <property name="can_focus">True</property>
+    <property name="can_default">True</property>
     <property name="margin_left">10</property>
     <property name="margin_right">10</property>
     <property name="margin_top">20</property>
@@ -515,7 +516,8 @@
     <child>
       <object class="GtkFrame">
         <property name="visible">True</property>
-        <property name="can_focus">False</property>
+        <property name="can_focus">True</property>
+        <property name="can_default">True</property>
         <property name="label_xalign">0</property>
         <property name="shadow_type">none</property>
         <child>
@@ -942,7 +944,9 @@
   <object class="GtkApplicationWindow" id="Window">
     <property name="width_request">600</property>
     <property name="height_request">400</property>
-    <property name="can_focus">False</property>
+    <property name="can_focus">True</property>
+    <property name="can_default">True</property>
+    <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
     <property name="default_width">800</property>
     <property name="default_height">500</property>
     <property name="focus_on_map">False</property>
@@ -1078,19 +1082,32 @@
     <child>
       <object class="GtkBox">
         <property name="visible">True</property>
-        <property name="can_focus">False</property>
+        <property name="can_focus">True</property>
+        <property name="can_default">True</property>
+        <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
         <property name="orientation">vertical</property>
         <child>
           <object class="GtkPaned">
             <property name="visible">True</property>
             <property name="can_focus">True</property>
+            <property name="can_default">True</property>
+            <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
             <child>
-              <object class="GtkGLArea" id="GLArea">
-                <property name="width_request">400</property>
+              <object class="GtkEventBox" id="GLBox">
                 <property name="visible">True</property>
-                <property name="app_paintable">True</property>
-                <property name="can_focus">False</property>
-                <property name="has_depth_buffer">True</property>
+                <property name="can_focus">True</property>
+                <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
+                <child>
+                  <object class="GtkGLArea" id="GLArea">
+                    <property name="width_request">400</property>
+                    <property name="visible">True</property>
+                    <property name="app_paintable">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="can_default">True</property>
+                    <property name="events">GDK_STRUCTURE_MASK | GDK_SCROLL_MASK</property>
+                    <property name="has_depth_buffer">True</property>
+                  </object>
+                </child>
               </object>
               <packing>
                 <property name="resize">False</property>

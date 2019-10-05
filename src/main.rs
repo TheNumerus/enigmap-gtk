@@ -2,33 +2,18 @@ use gtk::prelude::*;
 
 use enigmap::renderers::get_hex_vertex;
 use enigmap::{Hex, HexMap, HexType};
-use enigmap::renderers::colors::ColorMap;
 use enigmap::generators::*;
 
 use std::sync::{Arc, Mutex};
-use std::ffi::CString;
-use std::os::raw::c_char;
 use std::slice;
 
-#[link(name="gl_bridge")]
-extern {
-    fn render(size_x: u32, size_y: u32);
-    fn window_resized(width: i32, height: i32);
-    fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
-    fn init_things(len: usize);
-    fn load_instance_data(data: *const InstanceData, len: u32);
-    fn map_resized(abs_size_x: f32, abs_size_y: f32);
-    fn cleanup();
-}
+use enigmap_gtk::{state::*, widgets::Widgets, glarea};
 
 fn main(){
     if gtk::init().is_err() {
         eprintln!("failed to initialize GTK Application");
         return;
     }
-
-    let vert_source = include_str!("vert.glsl");
-    let frag_source = include_str!("frag.glsl");
 
     let state = Arc::new(Mutex::new(State::default()));
 
@@ -51,7 +36,7 @@ fn main(){
     let status_bar: gtk::Statusbar = gui.get_object("StatusBar").unwrap();
     let seed_box: gtk::Box = gui.get_object("SeedBox").unwrap();
     let glarea: gtk::GLArea = gui.get_object("GLArea").unwrap();
-
+    let glbox: gtk::EventBox = gui.get_object("GLBox").unwrap();
 
     let (size_x, size_y) = {
         let state = state.lock().unwrap();
@@ -65,50 +50,6 @@ fn main(){
 
     state.lock().unwrap().map = map;
 
-    glarea.connect_resize(move |_glarea, w, h| {
-        unsafe {
-            window_resized(w, h);
-        }
-    });
-
-    {
-        let state = Arc::clone(&state);
-        glarea.connect_render(move |_glarea, _context| {
-            _glarea.make_current();
-            let (size_x, size_y, abs_size_x, abs_size_y) = {
-                let state = state.lock().unwrap();
-                (state.size_x, state.size_y, state.map.absolute_size_x, state.map.absolute_size_y)
-            };
-            unsafe {
-                map_resized(abs_size_x, abs_size_y);
-                render(size_x, size_y);
-            }
-            Inhibit(false)
-        });
-    }
-
-
-    {
-        let state = Arc::clone(&state);
-        glarea.connect_realize(move |glarea| {
-            let lock = state.lock().unwrap();
-            glarea.make_current();
-            let c_sh_vert = CString::new(vert_source).unwrap();
-            let c_sh_frag = CString::new(frag_source).unwrap();
-            let instance_data = get_instance_data(&lock.map, &lock.color_map);
-            unsafe {
-                load_shader(c_sh_vert.as_ptr(), c_sh_frag.as_ptr());
-                init_things((size_x * size_y) as usize);
-                load_instance_data(instance_data.as_ptr(), instance_data.len() as u32);
-            }
-        });
-    }
-
-    glarea.connect_unrealize(move |_glarea| {
-        unsafe {
-            cleanup();
-        }
-    });
 
     gen_box.pack_start(&circle_settings, false, false, 0);
     ren_box.pack_start(&ogl_settings, false, false, 0);
@@ -122,8 +63,15 @@ fn main(){
         textured_settings,
         status_bar,
         seed_box,
-        glarea
+        glarea,
+        glbox
     }));
+
+    {
+        let widgets = Arc::clone(&widgets);
+        glarea::connect_events(&state, widgets);
+    }
+
 
     adjustnemt_update("SizeX", &state, &widgets, &gui, |value, state| {
         let size: u32 = value.get_value() as u32;
@@ -170,11 +118,7 @@ fn main(){
         random_seed.connect_state_set(move |_, switch_state| {
             random_switch_changed(switch_state, &state, &widgets);
             regenerate_map(&state);
-            let lock = state.lock().unwrap();
-            let inst_data = get_instance_data(&lock.map, &lock.color_map);
-            unsafe {
-                load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
-            }
+            glarea::reload_map(&state);
             widgets.lock().unwrap().glarea.queue_render();
             gtk::Inhibit(false)
         });
@@ -197,11 +141,7 @@ fn adjustnemt_update<T: 'static>(name: &str, state: &Arc<Mutex<State>>, widgets:
     adj.connect_value_changed(move |value| {
         on_change(value, &state);
         regenerate_map(&state);
-        let lock = state.lock().unwrap();
-        let inst_data = get_instance_data(&lock.map, &lock.color_map);
-        unsafe {
-            load_instance_data(inst_data.as_ptr(), inst_data.len() as u32);
-        }
+        glarea::reload_map(&state);
         widgets.lock().unwrap().glarea.queue_render();
     });
 }
@@ -273,46 +213,6 @@ fn regenerate_map(state: &Arc<Mutex<State>>) {
         Generator::Inland(gen) => gen.generate(&mut map_clone)
     }
     state.lock().unwrap().map = map_clone;
-}
-
-pub struct Widgets {
-    pub gen_box: gtk::Box,
-    pub circle_settings: gtk::Box,
-    pub island_settings: gtk::Box,
-    pub inland_settings: gtk::Box,
-    pub ren_box: gtk::Box,
-    pub ogl_settings: gtk::Box,
-    pub textured_settings: gtk::Box,
-    pub status_bar: gtk::Statusbar,
-    pub seed_box: gtk::Box,
-    pub glarea: gtk::GLArea,
-}
-
-#[derive(Debug, Clone)]
-pub struct State {
-    pub size_x: u32,
-    pub size_y: u32,
-    pub random_seed: bool,
-    pub seed: u32,
-    pub gen: Generator,
-    pub ren: Renderer,
-    pub map: HexMap,
-    pub color_map: ColorMap
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State {
-            size_x: 100,
-            size_y: 75,
-            gen: Generator::Circle(Circle::default()),
-            ren: Renderer::Ogl,
-            random_seed: true,
-            seed: 0,
-            map: HexMap::new(100, 75),
-            color_map: ColorMap::default()
-        }
-    }
 }
 
 fn generator_changed(combo_box: &gtk::ComboBoxText, state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) {
@@ -406,19 +306,6 @@ fn push_state_message(state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) 
     status_bar.push(status_bar.get_context_id("test"), &string);
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum Generator {
-    Circle(enigmap::generators::Circle),
-    Island(enigmap::generators::Islands),
-    Inland(enigmap::generators::Inland)
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Renderer {
-    Ogl,
-    OglTextured
-}
-
 
 #[no_mangle]
 pub extern "C" fn get_hex_verts(verts: *mut f32) {
@@ -428,29 +315,4 @@ pub extern "C" fn get_hex_verts(verts: *mut f32) {
         verts[2 * i] = coords.0;
         verts[2 * i + 1] = coords.1;
     }
-}
-
-#[repr(C)]
-pub struct InstanceData {
-    offset_x: f32,
-    offset_y: f32,
-    r: f32,
-    g: f32,
-    b: f32,
-}
-
-pub fn get_instance_data(map: &HexMap, colors: &ColorMap) -> Vec<InstanceData> {
-    let size = map.get_area() as usize;
-    let mut instances = Vec::with_capacity(size);
-    for i in 0..size {
-        let color = colors.get_color_f32(&map.field[i].terrain_type);
-        instances.push(InstanceData{
-            offset_x: map.field[i].center_x,
-            offset_y: map.field[i].center_y,
-            r: color.r,
-            g: color.g,
-            b: color.b
-        });
-    }
-    instances
 }

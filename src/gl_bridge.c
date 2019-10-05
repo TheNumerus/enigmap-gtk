@@ -7,7 +7,6 @@
 
 // RUST FUNCTIONS
 extern void get_hex_verts(float* verts);
-extern void get_instance_data(float* instances, void* map, uint32_t x, uint32_t y);
 
 // CONSTANTS
 const uint32_t indices[] = {
@@ -18,9 +17,9 @@ const uint32_t indices[] = {
 const int32_t verts_len = 12; 
 
 // GLOBALS
-char * vert_shader_source;
-char * frag_shader_source;
-uint32_t vao, vbo, ebo, vbo_instances, ratio_uniform, uniform_size_x, uniform_size_y, shader_program;
+char * vert_shader_source = NULL;
+char * frag_shader_source = NULL;
+uint32_t vao, vbo, ebo, vbo_instances, ratio_uniform, uniform_size_x, uniform_size_y, shader_program, uniform_zoom;
 
 float verts[12];
 
@@ -67,6 +66,7 @@ void generate_program() {
     ratio_uniform = glGetUniformLocation(shader_program, "aspect_ratio");
     uniform_size_x = glGetUniformLocation(shader_program, "size_x");
     uniform_size_y = glGetUniformLocation(shader_program, "size_y");
+    uniform_zoom = glGetUniformLocation(shader_program, "zoom");
 }
 
 // EXTERN FUNCTIONS
@@ -79,12 +79,19 @@ void render(uint32_t x, uint32_t y) {
 }
 
 void window_resized(int32_t width, int32_t height) {
+    glUseProgram(shader_program);
     glUniform1f(ratio_uniform, (float)width / (float)height);
 }
 
 void map_resized(float abs_size_x, float abs_size_y) {
+    glUseProgram(shader_program);
     glUniform1f(uniform_size_x, abs_size_x);
     glUniform1f(uniform_size_y, abs_size_y);
+}
+
+void zoom_changed(float val) {
+    glUseProgram(shader_program);
+    glUniform1f(uniform_zoom, val);
 }
 
 void load_instance_data(void* data, uint32_t len) {
@@ -94,7 +101,14 @@ void load_instance_data(void* data, uint32_t len) {
 }
 
 void load_shader(char * str_vert, char * str_frag) {
+    if (vert_shader_source != NULL) {
+        free(vert_shader_source);
+    }
     vert_shader_source = str_vert;
+    
+    if (frag_shader_source != NULL) {
+        free(frag_shader_source);
+    }
     frag_shader_source = str_frag;
 }
 
@@ -103,6 +117,8 @@ void cleanup() {
     glDeleteBuffers(1, &vbo_instances);
     glDeleteBuffers(1, &ebo);
     glDeleteVertexArrays(1, &vao);
+    free(vert_shader_source);
+    free(frag_shader_source);
 }
 
 void init_things(uint64_t len) {

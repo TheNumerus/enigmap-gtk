@@ -7,6 +7,7 @@ out vec3 out_col_vert;
 uniform float aspect_ratio;
 uniform float size_x;
 uniform float size_y;
+uniform float zoom;
 
 void main() {
     float map_asp = size_x / size_y;
@@ -20,6 +21,8 @@ void main() {
     // aspect ratio correction
     pos /= vec2(max(1.0, 1.0 / map_asp), max(1.0, map_asp));
     
+    pos *= zoom;
+
     if (map_asp >= 1.0) {
         if (aspect_ratio >= map_asp) {
             pos /= vec2(aspect_ratio / map_asp, 1.0 / map_asp);
