@@ -1,13 +1,14 @@
 use gtk::prelude::*;
 
 use enigmap::renderers::get_hex_vertex;
-use enigmap::{Hex, HexMap, HexType};
+use enigmap::{Hex, HexMap};
 use enigmap::generators::*;
 
 use std::sync::{Arc, Mutex};
 use std::slice;
 
 use enigmap_gtk::{state::*, widgets::Widgets, glarea};
+use enigmap_gtk::ffi::gl_zoom_changed;
 
 fn main(){
     if gtk::init().is_err() {
@@ -50,7 +51,6 @@ fn main(){
 
     state.lock().unwrap().map = map;
 
-
     gen_box.pack_start(&circle_settings, false, false, 0);
     ren_box.pack_start(&ogl_settings, false, false, 0);
     let widgets = Arc::new(Mutex::new(Widgets{
@@ -68,6 +68,20 @@ fn main(){
     }));
 
     {
+        let state = Arc::clone(&state);
+        let widgets = Arc::clone(&widgets);
+        win.connect_key_press_event(move |_win, event| {
+            if event.get_keyval() == gdk::enums::key::r || event.get_keyval() == gdk::enums::key::R {
+                state.lock().unwrap().zoom_level = 0;
+                gl_zoom_changed(1.0);
+                widgets.lock().unwrap().glarea.queue_render();
+            }
+            Inhibit(false)
+        });
+    }
+
+
+    {
         let widgets = Arc::clone(&widgets);
         glarea::connect_events(&state, widgets);
     }
@@ -75,18 +89,12 @@ fn main(){
 
     adjustnemt_update("SizeX", &state, &widgets, &gui, |value, state| {
         let size: u32 = value.get_value() as u32;
-        let mut lock = state.lock().unwrap();
-        let size_y = lock.size_y;
-        lock.map.remap(size, size_y, HexType::Water);
-        lock.size_x = size;
+        state.lock().unwrap().set_size_x(size);
     });
 
     adjustnemt_update("SizeY", &state, &widgets, &gui, |value, state| {
         let size: u32 = value.get_value() as u32;
-        let mut lock = state.lock().unwrap();
-        let size_x = lock.size_x;
-        lock.map.remap(size_x, size, HexType::Water);
-        lock.size_y = size;
+        state.lock().unwrap().set_size_y(size);
     });
 
     adjustnemt_update("Seed", &state, &widgets, &gui, |value, state| {

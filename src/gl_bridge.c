@@ -23,7 +23,6 @@ uint32_t vao, vbo, ebo, vbo_instances, ratio_uniform, uniform_size_x, uniform_si
 
 float verts[12];
 
-float * instances;
 uint32_t instances_len;
 
 // INTERNAL FUNCTIONS
@@ -70,12 +69,13 @@ void generate_program() {
 }
 
 // EXTERN FUNCTIONS
-void render(uint32_t x, uint32_t y) {
+void render() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glClearColor(0.1, 0.1, 0.1, 1.0);
 
     glBindVertexArray(vao);
-    glDrawElementsInstanced(GL_TRIANGLE_STRIP, 6, GL_UNSIGNED_INT, 0, x * y);
+    glUseProgram(shader_program);
+    glDrawElementsInstanced(GL_TRIANGLE_STRIP, 6, GL_UNSIGNED_INT, 0, instances_len);
 }
 
 void window_resized(int32_t width, int32_t height) {
@@ -95,6 +95,7 @@ void zoom_changed(float val) {
 }
 
 void load_instance_data(void* data, uint32_t len) {
+    instances_len = len;
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 5 * len, data, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -121,7 +122,7 @@ void cleanup() {
     free(frag_shader_source);
 }
 
-void init_things(uint64_t len) {
+void init_things() {
     glewInit();
 
     // create buffers
@@ -139,15 +140,6 @@ void init_things(uint64_t len) {
     glBufferData(GL_ARRAY_BUFFER, verts_len * sizeof(float), verts, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    // upload instance data
-    instances = malloc(len * sizeof(float) * 5);
-    instances_len = len;
-
-    glBindVertexArray(vbo_instances);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_instances);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 5 * len, instances, GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // generate program
     generate_program();

@@ -6,19 +6,19 @@ use crate::glarea::InstanceData;
 
 #[link(name="gl_bridge")]
 extern {
-    fn render(size_x: u32, size_y: u32);
+    fn render();
     fn window_resized(width: i32, height: i32);
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
-    fn init_things(len: usize);
+    fn init_things();
     fn load_instance_data(data: *const InstanceData, len: u32);
     fn map_resized(abs_size_x: f32, abs_size_y: f32);
     fn zoom_changed(val: f32);
     fn cleanup();
 }
 
-pub fn gl_render(size_x: u32, size_y: u32) {
+pub fn gl_render() {
     unsafe {
-        render(size_x, size_y);
+        render();
     }
 }
 
@@ -38,9 +38,9 @@ pub fn gl_load_shader(vert_source: &str, frag_source: &str) {
     }
 }
 
-pub fn gl_init_things(len: usize) {
+pub fn gl_init_things() {
     unsafe {
-        init_things(len);
+        init_things();
     }
 }
 

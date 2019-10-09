@@ -23,7 +23,7 @@ pub fn connect_events(state: &Arc<Mutex<State>>, widgets: Arc<Mutex<Widgets>>) {
             glarea.set_window(&glarea.get_parent_window().unwrap());
             gl_load_shader(VERT_SOURCE, FRAG_SOURCE);
             let instance_data = get_instance_data(&lock.map, &lock.color_map);
-            gl_init_things((lock.size_x * lock.size_y) as usize);
+            gl_init_things();
             gl_load_instance_data(instance_data);
             gl_zoom_changed(1.0);
         });
@@ -42,12 +42,12 @@ pub fn connect_events(state: &Arc<Mutex<State>>, widgets: Arc<Mutex<Widgets>>) {
         let glarea = &widgets.lock().unwrap().glarea;
         glarea.connect_render(move |_glarea, _context| {
             _glarea.make_current();
-            let (size_x, size_y, abs_size_x, abs_size_y) = {
+            let (abs_size_x, abs_size_y) = {
                 let state = state.lock().unwrap();
-                (state.size_x, state.size_y, state.map.absolute_size_x, state.map.absolute_size_y)
+                (state.map.absolute_size_x, state.map.absolute_size_y)
             };
             gl_map_resized(abs_size_x, abs_size_y);
-            gl_render(size_x, size_y);
+            gl_render();
             Inhibit(false)
         });
     }
@@ -73,12 +73,10 @@ pub fn connect_events(state: &Arc<Mutex<State>>, widgets: Arc<Mutex<Widgets>>) {
             }
 
             // converts zoom value to float multiple
-            let converted = if *zoom > 0 {
+            let converted = if *zoom >= 0 {
                 1.0 + *zoom as f32 * 0.2
-            } else if *zoom < 0 {
-                (0.2 * *zoom as f32).exp()
             } else {
-                1.0
+                (0.2 * *zoom as f32).exp()
             };
             gl_zoom_changed(converted);
             widgets.lock().unwrap().glarea.queue_render();

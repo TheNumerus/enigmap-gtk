@@ -1,6 +1,6 @@
 use enigmap::renderers::colors::ColorMap;
 use enigmap::generators::*;
-use enigmap::HexMap;
+use enigmap::{HexMap, HexType};
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -13,6 +13,25 @@ pub struct State {
     pub map: HexMap,
     pub color_map: ColorMap,
     pub zoom_level: i32
+}
+
+impl State {
+    pub fn set_size_x(&mut self, new_val: u32) {
+        if new_val != self.size_x {
+            self.size_x = new_val;
+            self.map.remap(self.size_x, self.size_y, HexType::Water);
+            // this lags the UI for some reason
+            //gl_map_resized(self.map.absolute_size_x, self.map.absolute_size_y);
+        }
+    }
+
+    pub fn set_size_y(&mut self, new_val: u32) {
+        if new_val != self.size_y {
+            self.size_y = new_val;
+            self.map.remap(self.size_x, self.size_y, HexType::Water);
+            //gl_map_resized(self.map.absolute_size_x, self.map.absolute_size_y);
+        }
+    }
 }
 
 impl Default for State {
