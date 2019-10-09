@@ -2,14 +2,14 @@ use std::os::raw::c_char;
 use std::ffi::CString;
 use std::mem::forget;
 
-use crate::glarea::InstanceData;
+use crate::glarea::{InstanceData, Vertex};
 
 #[link(name="gl_bridge")]
 extern {
     fn render();
     fn window_resized(width: i32, height: i32);
     fn load_shader(source_vert: *const c_char, source_frag: *const c_char);
-    fn init_things();
+    fn init_things(verts: *const Vertex, verts_len: u32);
     fn load_instance_data(data: *const InstanceData, len: u32);
     fn map_resized(abs_size_x: f32, abs_size_y: f32);
     fn zoom_changed(val: f32);
@@ -38,9 +38,9 @@ pub fn gl_load_shader(vert_source: &str, frag_source: &str) {
     }
 }
 
-pub fn gl_init_things() {
+pub fn gl_init_things(verts: &[Vertex]) {
     unsafe {
-        init_things();
+        init_things(verts.as_ptr(), verts.len() as u32 * 2);
     }
 }
 

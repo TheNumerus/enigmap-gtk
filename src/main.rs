@@ -1,11 +1,9 @@
 use gtk::prelude::*;
 
-use enigmap::renderers::get_hex_vertex;
-use enigmap::{Hex, HexMap};
+use enigmap::HexMap;
 use enigmap::generators::*;
 
 use std::sync::{Arc, Mutex};
-use std::slice;
 
 use enigmap_gtk::{state::*, widgets::Widgets, glarea};
 use enigmap_gtk::ffi::gl_zoom_changed;
@@ -312,15 +310,4 @@ fn push_state_message(state: &Arc<Mutex<State>>, widgets: &Arc<Mutex<Widgets>>) 
     let status_bar = &widgets.lock().unwrap().status_bar;
     let string = format!("{:?}", state.lock().unwrap());
     status_bar.push(status_bar.get_context_id("test"), &string);
-}
-
-
-#[no_mangle]
-pub extern "C" fn get_hex_verts(verts: *mut f32) {
-    let verts = unsafe { slice::from_raw_parts_mut(verts, 12)};
-    for i in 0..6 {
-        let coords = get_hex_vertex(&Hex::empty(), i);
-        verts[2 * i] = coords.0;
-        verts[2 * i + 1] = coords.1;
-    }
 }

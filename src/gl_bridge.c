@@ -6,22 +6,16 @@
 #include <stdint.h>
 
 // RUST FUNCTIONS
-extern void get_hex_verts(float* verts);
 
 // CONSTANTS
 const uint32_t indices[] = {
     5, 4, 0, 3, 1, 2
 };
 
-// 6 verts with 2 coords each
-const int32_t verts_len = 12; 
-
 // GLOBALS
 char * vert_shader_source = NULL;
 char * frag_shader_source = NULL;
 uint32_t vao, vbo, ebo, vbo_instances, ratio_uniform, uniform_size_x, uniform_size_y, shader_program, uniform_zoom;
-
-float verts[12];
 
 uint32_t instances_len;
 
@@ -122,7 +116,7 @@ void cleanup() {
     free(frag_shader_source);
 }
 
-void init_things() {
+void init_things(const float* verts, uint32_t verts_len) {
     glewInit();
 
     // create buffers
@@ -130,9 +124,6 @@ void init_things() {
     glGenBuffers(1, &vbo);
     glGenBuffers(1, &ebo);
     glGenBuffers(1, &vbo_instances);
-
-    // load hex coords
-    get_hex_verts(verts);
 
     // upload single hex data and indices
     glBindVertexArray(vao);

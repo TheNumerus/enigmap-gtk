@@ -2,8 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use gtk::prelude::*;
 
-use enigmap::HexMap;
+use enigmap::{Hex, HexMap};
 use enigmap::renderers::colors::ColorMap;
+use enigmap::renderers::get_hex_vertex;
 
 use crate::ffi::*;
 use crate::state::State;
@@ -23,7 +24,7 @@ pub fn connect_events(state: &Arc<Mutex<State>>, widgets: Arc<Mutex<Widgets>>) {
             glarea.set_window(&glarea.get_parent_window().unwrap());
             gl_load_shader(VERT_SOURCE, FRAG_SOURCE);
             let instance_data = get_instance_data(&lock.map, &lock.color_map);
-            gl_init_things();
+            gl_init_things(&get_hex_verts());
             gl_load_instance_data(instance_data);
             gl_zoom_changed(1.0);
         });
@@ -114,4 +115,19 @@ pub fn reload_map(state: &Arc<Mutex<State>>) {
     let lock = state.lock().unwrap();
     let instance_data = get_instance_data(&lock.map, &lock.color_map);
     gl_load_instance_data(instance_data);
+}
+
+#[repr(C)]
+pub struct Vertex {
+    x: f32,
+    y: f32,
+}
+
+fn get_hex_verts() -> Vec<Vertex> {
+    let mut verts = Vec::with_capacity(6);
+    for i in 0..6 {
+        let coords = get_hex_vertex(&Hex::empty(), i);
+        verts.push(Vertex{x: coords.0, y: coords.1});
+    }
+    verts
 }
